@@ -270,7 +270,7 @@ def admin_view():
     """Render the admin dashboard view."""
     username = auth.get_current_user()
     
-    st.title("👑 Admin Dashboard")
+    st.title("Admin Dashboard")
     
     # Sidebar
     with st.sidebar:
