@@ -57,8 +57,8 @@ def login_page():
                 st.error("Invalid username or password")
     
     st.markdown("---")
-    st.caption("Default admin credentials: admin / admin123")
-    st.caption("Note: Change default password in production!")
+    st.caption("")
+    st.caption("please sign in")
 
 
 def tester_view():
