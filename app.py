@@ -36,7 +36,7 @@ if "users_initialized" not in st.session_state:
 
 
 # Default data file path
-DEFAULT_DATA_FILE = "data.jsonl"
+DEFAULT_DATA_FILE = "complete_corrected_combined.jsonl"
 
 
 def login_page():
