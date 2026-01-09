@@ -12,7 +12,7 @@ from typing import Dict
 
 
 CONFIG_FILE = "config.json"
-DEFAULT_BATCH_SIZE = 10
+DEFAULT_BATCH_SIZE = 50
 DEFAULT_DATA_FILE = "complete_corrected_combined.jsonl"
 
 
