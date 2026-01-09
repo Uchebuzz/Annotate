@@ -2,26 +2,62 @@
 Authentication module for managing user sessions and credentials.
 
 This module handles:
-- User authentication with password hashing
+- User authentication with secure password hashing (bcrypt)
 - Session state management
 - User registration (for initial setup)
+- Password change functionality
 """
 
-import hashlib
 import json
 import os
-import streamlit as  st
+import bcrypt
+import streamlit as st
 from typing import Optional, Dict, Tuple
+from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
 
 USER_DB_FILE = "users.json"
 DEFAULT_ADMIN_USER = "admin"
-DEFAULT_ADMIN_PASS = "AI_admin1223"  # Should be changed in production
+# Get default password from environment variable, fallback to secure default
+# IMPORTANT: Set ADMIN_PASSWORD in .env file or environment variable
+DEFAULT_ADMIN_PASS = os.getenv("ADMIN_PASSWORD", "CHANGE_ME_ON_FIRST_LOGIN")
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using SHA-256."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """
+    Hash a password using bcrypt (secure password hashing).
+    
+    Args:
+        password: Plain text password
+        
+    Returns:
+        Bcrypt hashed password string
+    """
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password_hash(hashed: str, password: str) -> bool:
+    """
+    Verify a password against a bcrypt hash.
+    
+    Args:
+        hashed: Bcrypt hashed password
+        password: Plain text password to verify
+        
+    Returns:
+        True if password matches, False otherwise
+    """
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        # Fallback for old SHA-256 hashes (migration support)
+        import hashlib
+        old_hash = hashlib.sha256(password.encode()).hexdigest()
+        return old_hash == hashed
 
 
 def load_users() -> Dict[str, Dict]:
@@ -42,23 +78,40 @@ def save_users(users: Dict[str, Dict]) -> None:
 
 
 def initialize_default_users():
-    """Initialize default admin user if no users exist."""
+    """
+    Initialize default admin user if no users exist.
+    
+    Note: The default password should be changed immediately after first login.
+    Set ADMIN_PASSWORD environment variable for a custom default password.
+    """
     users = load_users()
     if not users:
+        # Only create default admin if no users exist
         users[DEFAULT_ADMIN_USER] = {
             "password_hash": hash_password(DEFAULT_ADMIN_PASS),
             "role": "admin",
-            "user_id": DEFAULT_ADMIN_USER
+            "user_id": DEFAULT_ADMIN_USER,
+            "password_changed": False,  # Track if default password has been changed
+            "created_at": None  # Can be used for tracking
         }
         save_users(users)
 
 
 def verify_password(username: str, password: str) -> bool:
-    """Verify if the provided password matches the user's stored hash."""
+    """
+    Verify if the provided password matches the user's stored hash.
+    
+    Args:
+        username: Username to verify
+        password: Plain text password to verify
+        
+    Returns:
+        True if password is correct, False otherwise
+    """
     users = load_users()
     if username in users:
-        password_hash = hash_password(password)
-        return users[username]["password_hash"] == password_hash
+        stored_hash = users[username]["password_hash"]
+        return verify_password_hash(stored_hash, password)
     return False
 
 
@@ -143,7 +196,8 @@ def register_user(username: str, password: str, role: str = "tester") -> Tuple[b
     users[username] = {
         "password_hash": hash_password(password),
         "role": role,
-        "user_id": username
+        "user_id": username,
+        "password_changed": True  # New users set their own password, so it's "changed"
     }
     save_users(users)
     return True, f"User {username} registered successfully"
@@ -169,6 +223,55 @@ def get_all_testers() -> Dict[str, Dict]:
     users = load_users()
     return {username: user_data for username, user_data in users.items() 
             if user_data.get("role") != "admin"}
+
+
+def change_password(username: str, old_password: str, new_password: str) -> Tuple[bool, str]:
+    """
+    Change a user's password.
+    
+    Args:
+        username: Username whose password to change
+        old_password: Current password (for verification)
+        new_password: New password to set
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    users = load_users()
+    
+    if username not in users:
+        return False, "User not found"
+    
+    # Verify old password
+    if not verify_password(username, old_password):
+        return False, "Current password is incorrect"
+    
+    # Validate new password
+    if not new_password or len(new_password) < 6:
+        return False, "New password must be at least 6 characters long"
+    
+    # Update password
+    users[username]["password_hash"] = hash_password(new_password)
+    users[username]["password_changed"] = True
+    save_users(users)
+    
+    return True, "Password changed successfully"
+
+
+def requires_password_change(username: str) -> bool:
+    """
+    Check if a user needs to change their password (e.g., using default password).
+    
+    Args:
+        username: Username to check
+        
+    Returns:
+        True if password change is required, False otherwise
+    """
+    users = load_users()
+    if username in users:
+        return not users[username].get("password_changed", True)
+    return False
 
 
 def delete_user(username: str, current_username: str) -> Tuple[bool, str]:

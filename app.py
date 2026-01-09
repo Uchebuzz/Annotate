@@ -557,6 +557,32 @@ def admin_view():
     
     st.divider()
     
+    # Password Management
+    st.markdown("### Password Management")
+    
+    with st.expander("🔒 Change My Password"):
+        with st.form("admin_change_password"):
+            current_password = st.text_input("Current Password", type="password", key="admin_current_pass")
+            new_password = st.text_input("New Password", type="password", key="admin_new_pass", help="Must be at least 6 characters")
+            confirm_password = st.text_input("Confirm New Password", type="password", key="admin_confirm_pass")
+            
+            if st.form_submit_button("Change Password", type="primary"):
+                if not new_password or len(new_password) < 6:
+                    st.error("New password must be at least 6 characters long")
+                elif new_password != confirm_password:
+                    st.error("New passwords do not match")
+                else:
+                    success, message = auth.change_password(username, current_password, new_password)
+                    if success:
+                        st.success(message)
+                        st.info("Password changed successfully. Please log in again.")
+                        auth.logout()
+                        st.rerun()
+                    else:
+                        st.error(message)
+    
+    st.divider()
+    
     # User management
     st.markdown("### User Management")
     
@@ -623,17 +649,52 @@ def admin_view():
                     st.error(message)
 
 
+def password_change_page():
+    """Render password change page for users who need to change their password."""
+    username = auth.get_current_user()
+    
+    st.title("🔒 Change Password Required")
+    st.warning("⚠️ You are using the default password. Please change it for security.")
+    
+    with st.form("change_password_form"):
+        current_password = st.text_input("Current Password", type="password")
+        new_password = st.text_input("New Password", type="password", help="Must be at least 6 characters")
+        confirm_password = st.text_input("Confirm New Password", type="password")
+        
+        submit_button = st.form_submit_button("Change Password", type="primary")
+        
+        if submit_button:
+            if not new_password or len(new_password) < 6:
+                st.error("New password must be at least 6 characters long")
+            elif new_password != confirm_password:
+                st.error("New passwords do not match")
+            else:
+                success, message = auth.change_password(username, current_password, new_password)
+                if success:
+                    st.success(message)
+                    st.info("Please log in again with your new password.")
+                    auth.logout()
+                    st.rerun()
+                else:
+                    st.error(message)
+
+
 def main():
     """Main application entry point."""
     # Check authentication
     if not auth.is_authenticated():
         login_page()
     else:
-        # Route to appropriate view based on role
-        if auth.is_admin():
-            admin_view()
+        # Check if password change is required
+        username = auth.get_current_user()
+        if username and auth.requires_password_change(username):
+            password_change_page()
         else:
-            tester_view()
+            # Route to appropriate view based on role
+            if auth.is_admin():
+                admin_view()
+            else:
+                tester_view()
 
 
 if __name__ == "__main__":

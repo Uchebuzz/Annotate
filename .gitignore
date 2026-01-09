@@ -1,28 +1,27 @@
+# Environment variables
+.env
+
+# User data files
+users.json
+annotations.json
+assignments.json
+batch_assignments.json
+config.json
+
+# Data files (may contain sensitive information)
+*.jsonl
+data.jsonl
+complete_corrected_combined.jsonl
+corrected_translations.jsonl
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-venv/
 env/
+venv/
 ENV/
 .venv
 
@@ -31,29 +30,7 @@ ENV/
 .idea/
 *.swp
 *.swo
-*~
-
-# Sensitive data files
-users.json
-annotations.json
-assignments.json
-batch_assignments.json
-*.jsonl
-data.jsonl
-100_Grok.jsonl
-
-# Environment variables
-.env
-.env.local
 
 # OS
 .DS_Store
 Thumbs.db
-*.log
-
-# Docker
-.dockerignore
-
-# Streamlit
-.streamlit/secrets.toml
-
