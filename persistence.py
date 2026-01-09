@@ -188,24 +188,45 @@ def assign_batch_to_user(user_id: str, batch_size: int, all_record_ids: List[str
     """
     Assign a batch of records to a user.
     
+    Enforces hard limit: users can only receive ONE batch. If they've already
+    completed their batch, no new batch will be assigned.
+    
     Args:
         user_id: User ID to assign batch to
         batch_size: Number of records to assign
         all_record_ids: List of all available record IDs
         
     Returns:
-        List of record IDs assigned to the user (may be less than batch_size if not enough available)
+        List of record IDs assigned to the user (may be less than batch_size if not enough available).
+        Returns empty list if user has already reached their limit.
     """
+    # HARD LIMIT: Check if user has already completed their allocation
+    if user_has_reached_limit(user_id, batch_size):
+        return []  # User has reached limit, no new batch
+    
     assignments = load_assignments()
     annotations = load_annotations()
     batch_assignments = load_batch_assignments()
     current_time = time.time()
     
-    # Get records not yet annotated by this user
+    # Check if user already has a batch assigned
+    if user_id in batch_assignments:
+        existing_batch = batch_assignments[user_id].get("batch_record_ids", [])
+        # If user has an incomplete batch, don't assign a new one
+        if existing_batch:
+            # Check if batch is complete
+            batch_complete = all(
+                record_id in annotations and annotations[record_id].get("user_id") == user_id
+                for record_id in existing_batch
+            )
+            if not batch_complete:
+                return []  # User already has an incomplete batch
+    
+    # Get records not yet annotated by anyone (to prevent repeated batches)
     available_records = []
     for record_id in all_record_ids:
-        # Skip if already annotated by this user
-        if record_id in annotations and annotations[record_id].get("user_id") == user_id:
+        # Skip if already annotated by anyone (prevents repeated batches)
+        if record_id in annotations:
             continue
         
         # Check if assigned to another user (and not expired)
@@ -277,6 +298,34 @@ def user_has_completed_batch(user_id: str) -> bool:
     return True
 
 
+def can_user_annotate(user_id: str, batch_size: int) -> bool:
+    """
+    Check if a user can still annotate (hasn't reached their limit).
+    
+    This is a server-side validation that should be called before serving
+    any new records to a tester.
+    
+    Args:
+        user_id: User ID to check
+        batch_size: The batch size limit
+        
+    Returns:
+        True if user can still annotate, False if they've reached their limit
+    """
+    # Check if user has reached their hard limit
+    if user_has_reached_limit(user_id, batch_size):
+        return False
+    
+    # Check if user has a batch and if it's complete
+    batch_record_ids = get_user_batch(user_id)
+    if not batch_record_ids:
+        # No batch assigned yet - can annotate if under limit
+        return True
+    
+    # Has a batch - check if it's complete
+    return not user_has_completed_batch(user_id)
+
+
 def clear_user_batch(user_id: str) -> None:
     """Clear the user's current batch assignment."""
     batch_assignments = load_batch_assignments()
@@ -298,6 +347,35 @@ def get_assigned_records(user_id: str) -> Set[str]:
             assigned.add(record_id)
     
     return assigned
+
+
+def get_user_annotation_count(user_id: str) -> int:
+    """
+    Get the total number of annotations completed by a user.
+    
+    Args:
+        user_id: User ID to check
+        
+    Returns:
+        Total number of annotations completed by this user
+    """
+    annotations = load_annotations()
+    return sum(1 for ann in annotations.values() if ann.get("user_id") == user_id)
+
+
+def user_has_reached_limit(user_id: str, batch_size: int) -> bool:
+    """
+    Check if a user has reached their annotation limit (one batch).
+    
+    Args:
+        user_id: User ID to check
+        batch_size: The batch size limit
+        
+    Returns:
+        True if user has completed batch_size or more annotations, False otherwise
+    """
+    annotation_count = get_user_annotation_count(user_id)
+    return annotation_count >= batch_size
 
 
 def get_user_progress(user_id: str, total_records: int) -> Dict:

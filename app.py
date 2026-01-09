@@ -83,44 +83,13 @@ def tester_view():
         if st.button("🚪 Logout", use_container_width=True):
             auth.logout()
             st.rerun()
-        
-        st.divider()
-        
-        # File selection
-        st.markdown("### Data File")
-        data_file = st.text_input(
-            "JSONL file path:",
-            value=DEFAULT_DATA_FILE,
-            key="data_file_path"
-        )
-        
-        if st.button("📂 Load Data", use_container_width=True):
-            if os.path.exists(data_file):
-                st.session_state["data_file"] = data_file
-                st.session_state["records"] = None  # Force reload
-                st.success("Data file selected!")
-            else:
-                st.error(f"File not found: {data_file}")
     
-    # Get or load data file
-    data_file = st.session_state.get("data_file", DEFAULT_DATA_FILE)
+    # Get data file from config (set by admin)
+    data_file = config.get_data_file()
     
     if not os.path.exists(data_file):
         st.warning(f"⚠️ Data file not found: {data_file}")
-        st.info("Please specify a valid JSONL file path in the sidebar.")
-        st.markdown("""
-        The JSONL file should have one JSON object per line. Supported formats:
-        
-        **Conversations format (recommended):**
-        ```json
-        {"conversations": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}
-        ```
-        
-        **Legacy format:**
-        ```json
-        {"id": "unique_id", "source_text": "English text", "pidgin_translation": "Pidgin translation"}
-        ```
-        """)
+        st.info("Please contact the administrator to set up the annotation data file.")
         return
     
     # Load and validate data
@@ -134,7 +103,6 @@ def tester_view():
             
             st.session_state["records"] = records
             st.session_state["data_file"] = data_file
-            st.success(f"✅ Loaded {len(records)} records")
     
     records = st.session_state.get("records", [])
     
@@ -142,43 +110,104 @@ def tester_view():
         st.warning("No records to annotate.")
         return
     
-    # Progress tracking
-    progress = persistence.get_user_progress(user_id, len(records))
-    
-    st.markdown("### Your Overall Progress")
-    annotation_ui.render_progress_bar(progress["completed"], progress["total"])
-    
-    # Batch assignment logic
+    # Batch assignment logic with hard limit enforcement
     batch_size = config.get_batch_size()
+    
+    # HARD LIMIT CHECK: Server-side validation before serving any records
+    if not persistence.can_user_annotate(user_id, batch_size):
+        # User has reached their limit - show completion screen
+        annotation_count = persistence.get_user_annotation_count(user_id)
+        st.balloons()
+        st.success("🎉 Congratulations! You've completed your annotation task!")
+        st.markdown("### Task Completed!")
+        st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+        st.markdown("---")
+        st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+        return
+    
     user_batch = persistence.get_user_batch(user_id)
     
-    # Check if user needs a new batch
+    # Check if user needs a new batch (only if they haven't reached limit)
     if persistence.user_has_completed_batch(user_id):
-        # Assign new batch
+        # Double-check limit before assigning (server-side enforcement)
+        if persistence.user_has_reached_limit(user_id, batch_size):
+            # User has reached limit - show completion screen
+            annotation_count = persistence.get_user_annotation_count(user_id)
+            st.balloons()
+            st.success("🎉 Congratulations! You've completed your annotation task!")
+            st.markdown("### Task Completed!")
+            st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+            st.markdown("---")
+            st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+            return
+        
+        # Assign new batch (only if under limit)
         all_record_ids = [r.get("id") for r in records]
         new_batch = persistence.assign_batch_to_user(user_id, batch_size, all_record_ids)
         if new_batch:
             user_batch = new_batch
             st.info(f"📦 You've been assigned {len(new_batch)} records to annotate!")
+            st.rerun()
         else:
-            # No more records available
-            st.success("🎉 Congratulations! You've completed all available records.")
-            if st.button("🔄 Refresh to check for new records"):
-                st.session_state["current_record_id"] = None
-                st.rerun()
+            # No batch assigned (likely reached limit or no records available)
+            annotation_count = persistence.get_user_annotation_count(user_id)
+            if annotation_count >= batch_size:
+                # Reached limit
+                st.balloons()
+                st.success("🎉 Congratulations! You've completed your annotation task!")
+                st.markdown("### Task Completed!")
+                st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+                st.markdown("---")
+                st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+            else:
+                # No records available
+                st.info("📦 No more records available for assignment.")
             return
     
-    # Show batch progress
-    if user_batch:
-        annotations = persistence.load_annotations()
-        batch_completed = sum(1 for rid in user_batch 
-                             if rid in annotations and annotations[rid].get("user_id") == user_id)
-        batch_total = len(user_batch)
+    # Ensure user has a batch assigned
+    if not user_batch:
+        # Check limit before assigning
+        if persistence.user_has_reached_limit(user_id, batch_size):
+            annotation_count = persistence.get_user_annotation_count(user_id)
+            st.balloons()
+            st.success("🎉 Congratulations! You've completed your annotation task!")
+            st.markdown("### Task Completed!")
+            st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+            return
         
-        st.markdown(f"### Current Batch Progress ({batch_completed}/{batch_total})")
-        annotation_ui.render_progress_bar(batch_completed, batch_total)
+        # Try to assign initial batch
+        all_record_ids = [r.get("id") for r in records]
+        new_batch = persistence.assign_batch_to_user(user_id, batch_size, all_record_ids)
+        if new_batch:
+            user_batch = new_batch
+            st.info(f"📦 You've been assigned {len(new_batch)} records to annotate!")
+            st.rerun()
+        else:
+            st.info("📦 Waiting for batch assignment...")
+            st.rerun()
+        return
+    
+    # Show batch progress only (no overall progress)
+    annotations = persistence.load_annotations()
+    batch_completed = sum(1 for rid in user_batch 
+                         if rid in annotations and annotations[rid].get("user_id") == user_id)
+    batch_total = len(user_batch)
+    
+    st.markdown(f"### Your Batch Progress ({batch_completed}/{batch_total})")
+    annotation_ui.render_progress_bar(batch_completed, batch_total)
     
     st.divider()
+    
+    # HARD LIMIT CHECK: Validate before serving any record
+    if not persistence.can_user_annotate(user_id, batch_size):
+        annotation_count = persistence.get_user_annotation_count(user_id)
+        st.balloons()
+        st.success("🎉 Congratulations! You've completed your annotation task!")
+        st.markdown("### Task Completed!")
+        st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+        st.markdown("---")
+        st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+        return
     
     # Get current record to annotate from user's batch
     current_record_id = st.session_state.get("current_record_id")
@@ -210,21 +239,38 @@ def tester_view():
         )
     
     if not current_record:
-        # All records in batch are completed, but batch check should have caught this
-        st.success("🎉 You've completed your current batch!")
-        if st.button("🔄 Get Next Batch"):
-            persistence.clear_user_batch(user_id)
-            st.session_state["current_record_id"] = None
+        # All records in batch are completed - check limit first
+        if persistence.user_has_reached_limit(user_id, batch_size):
+            # User has reached limit - show completion screen
+            annotation_count = persistence.get_user_annotation_count(user_id)
+            st.balloons()
+            st.success("🎉 Congratulations! You've completed your annotation task!")
+            st.markdown("### Task Completed!")
+            st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+            st.markdown("---")
+            st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+            return
+        
+        # Batch completed but under limit - this shouldn't happen with single batch limit
+        # But handle gracefully by showing completion
+        if persistence.user_has_completed_batch(user_id):
+            annotation_count = persistence.get_user_annotation_count(user_id)
+            st.balloons()
+            st.success("🎉 Congratulations! You've completed your annotation task!")
+            st.markdown("### Task Completed!")
+            st.info(f"You have successfully completed {annotation_count} annotations. Thank you for your work!")
+            st.markdown("---")
+            st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+            return
+        else:
+            # This shouldn't happen, but handle gracefully
+            st.info("📦 Processing batch completion...")
             st.rerun()
-        return
+            return
     
-    # Display record number in batch and overall
+    # Display record number in batch only (no overall count)
     record_index_in_batch = user_batch.index(current_record_id) + 1 if current_record_id in user_batch else 0
-    record_index_overall = next(
-        (idx for idx, r in enumerate(records) if r.get("id") == current_record_id),
-        0
-    ) + 1
-    st.markdown(f"### Record {record_index_in_batch} of {len(user_batch)} in batch (Overall: {record_index_overall}/{len(records)})")
+    st.markdown(f"### Record {record_index_in_batch} of {len(user_batch)} in your batch")
     
     # Render annotation form
     annotation_data = annotation_ui.render_annotation_form(
@@ -235,6 +281,22 @@ def tester_view():
     if annotation_data is not None:
         record_id = current_record.get("id")
         
+        # HARD LIMIT ENFORCEMENT: Check before saving annotation
+        if persistence.user_has_reached_limit(user_id, batch_size):
+            st.error("⚠️ You have reached your annotation limit. Cannot save additional annotations.")
+            st.stop()
+        
+        # Validate that record is in user's batch (security check)
+        if record_id not in user_batch:
+            st.error("⚠️ Error: This record is not in your assigned batch. Please contact an administrator.")
+            st.stop()
+        
+        # Additional validation: Check current count before saving
+        current_count = persistence.get_user_annotation_count(user_id)
+        if current_count >= batch_size:
+            st.error("⚠️ You have reached your annotation limit. Cannot save additional annotations.")
+            st.stop()
+        
         # Save annotation (supports both old and new formats)
         persistence.save_annotation(
             record_id=record_id,
@@ -244,6 +306,20 @@ def tester_view():
             edited_translation=annotation_data.get("edited_translation"),
             edited_conversations=annotation_data.get("edited_conversations")
         )
+        
+        # Check if limit reached after saving
+        new_count = persistence.get_user_annotation_count(user_id)
+        if new_count >= batch_size:
+            # User has reached limit - show completion screen
+            st.balloons()
+            st.success("🎉 Congratulations! You've completed your annotation task!")
+            st.markdown("### Task Completed!")
+            st.info(f"You have successfully completed {new_count} annotations. Thank you for your work!")
+            st.markdown("---")
+            st.markdown("**Your annotation task is now complete. You cannot annotate additional records.**")
+            # Clear current record
+            st.session_state["current_record_id"] = None
+            return
         
         # Note: We don't release assignment immediately - it stays in the batch
         
@@ -256,7 +332,7 @@ def tester_view():
         # Auto-refresh to next record in batch
         st.rerun()
     
-    # Navigation buttons
+    # Navigation buttons (only within batch)
     st.divider()
     col1, col2, col3 = st.columns([1, 1, 1])
     
@@ -282,23 +358,49 @@ def admin_view():
         
         st.divider()
         
-        # File selection
-        st.markdown("### Data File")
+        # File upload and selection (Admin only)
+        st.markdown("### Data File Management")
+        
+        # File upload
+        uploaded_file = st.file_uploader(
+            "Upload JSONL file:",
+            type=['jsonl', 'json'],
+            key="admin_file_upload"
+        )
+        
+        if uploaded_file is not None:
+            # Save uploaded file
+            save_path = uploaded_file.name
+            with open(save_path, 'wb') as f:
+                f.write(uploaded_file.getbuffer())
+            
+            # Update config with new file path
+            config.set_data_file(save_path)
+            st.success(f"✅ File uploaded and set as data file: {save_path}")
+            st.session_state["admin_data_file"] = save_path
+            st.rerun()
+        
+        st.divider()
+        
+        # File path selection
+        current_data_file = config.get_data_file()
         data_file = st.text_input(
             "JSONL file path:",
-            value=DEFAULT_DATA_FILE,
+            value=current_data_file,
             key="admin_data_file_path"
         )
         
-        if st.button("📂 Load Data", use_container_width=True):
+        if st.button("📂 Set Data File", use_container_width=True):
             if os.path.exists(data_file):
+                config.set_data_file(data_file)
                 st.session_state["admin_data_file"] = data_file
-                st.success("Data file selected!")
+                st.success(f"✅ Data file set to: {data_file}")
+                st.rerun()
             else:
                 st.error(f"File not found: {data_file}")
     
-    # Get data file
-    data_file = st.session_state.get("admin_data_file", DEFAULT_DATA_FILE)
+    # Get data file from config
+    data_file = config.get_data_file()
     
     if not os.path.exists(data_file):
         st.warning(f"⚠️ Data file not found: {data_file}")
@@ -366,13 +468,28 @@ def admin_view():
     # Export functionality
     st.markdown("### Export Corrected Data")
     
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        export_all = st.checkbox("Include all records (even unannotated)", value=False)
+    
+    with col2:
+        export_metadata = st.checkbox("Include annotation metadata", value=True)
+    
     if st.button("📥 Export Corrected JSONL", type="primary"):
         # Create corrected records
         corrected_records = []
+        annotated_count = 0
+        unannotated_count = 0
         
         for record in records:
             record_id = record.get("id")
             annotation = annotations.get(record_id)
+            
+            # Skip unannotated records if export_all is False
+            if not annotation and not export_all:
+                unannotated_count += 1
+                continue
             
             corrected_record = record.copy()
             
@@ -384,21 +501,25 @@ def admin_view():
             if annotation and annotation.get("edited_translation"):
                 corrected_record["pidgin_translation"] = annotation["edited_translation"]
             
-            # Add annotation metadata
-            if annotation:
+            # Add annotation metadata if requested (without timestamp)
+            if annotation and export_metadata:
                 corrected_record["_annotation"] = {
                     "annotated_by": annotation.get("username"),
-                    "is_correct": annotation.get("is_correct"),
-                    "timestamp": annotation.get("timestamp")
+                    "is_correct": annotation.get("is_correct")
+                    # Timestamp removed per requirements - export should be clean
                 }
             
             corrected_records.append(corrected_record)
+            if annotation:
+                annotated_count += 1
         
         # Export to file
         output_file = "corrected_translations.jsonl"
         data_loader.export_to_jsonl(corrected_records, output_file)
         
         st.success(f"✅ Exported {len(corrected_records)} records to {output_file}")
+        if not export_all and unannotated_count > 0:
+            st.info(f"ℹ️ {unannotated_count} unannotated records were excluded. Check 'Include all records' to include them.")
         
         # Provide download link
         with open(output_file, 'r', encoding='utf-8') as f:
