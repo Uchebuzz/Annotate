@@ -4,7 +4,7 @@ on:
   schedule:
     # Runs every 8 hours (UTC time)
     # Format: minute hour day month day-of-week
-    - cron: "0 */1 * * *"
+    - cron: "0 */8 * * *"
   workflow_dispatch:  # Allows manual trigger from GitHub Actions tab
 
 permissions:
@@ -27,5 +27,6 @@ jobs:
       - name: Create empty commit and push
         run: |
           git commit --allow-empty -m "chore: keep alive [$(date -u +'%Y-%m-%d %H:%M:%S UTC')]"
-          git push
+          git push origin HEAD
+
 
