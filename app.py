@@ -13,6 +13,8 @@ import os
 from typing import Optional
 
 # Import our modules
+# Import db first to initialize database connection
+import db
 import auth
 import data_loader
 import persistence

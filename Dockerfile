@@ -55,6 +55,7 @@ COPY data_loader.py .
 COPY persistence.py .
 COPY annotation_ui.py .
 COPY config.py .
+COPY db.py .
 
 # STEP 8: Create Volume for Data Persistence (Optional)
 # ------------------------------------------------------

@@ -4,6 +4,26 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pidgin-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-annotation_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Streamlit Application
   annotation-tool:
     build: .
     container_name: pidgin-annotation-tool
@@ -12,15 +32,28 @@ services:
     volumes:
       # Mount data directory so files persist
       - ./data:/app/data
-      # Mount JSON files so they persist
-      - ./users.json:/app/users.json
+      # Mount JSON files so they persist (still needed for annotations, assignments, etc.)
       - ./annotations.json:/app/annotations.json
       - ./assignments.json:/app/assignments.json
       - ./batch_assignments.json:/app/batch_assignments.json
       - ./config.json:/app/config.json
       - ./data.jsonl:/app/data.jsonl
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - PYTHONUNBUFFERED=1
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-annotation_db}
+      - DB_USER=${DB_USER:-postgres}
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+    # Optional: Add .env file support
+    # env_file:
+    #   - .env
+
+volumes:
+  postgres_data:
 
 
