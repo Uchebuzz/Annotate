@@ -24,9 +24,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Pull latest changes
+        run: |
+          git pull --rebase origin master
+
       - name: Create empty commit and push
         run: |
           git commit --allow-empty -m "chore: keep alive [$(date -u +'%Y-%m-%d %H:%M:%S UTC')]"
-          git push origin HEAD
+          git push origin master
 
 
