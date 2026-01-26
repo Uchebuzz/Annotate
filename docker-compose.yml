@@ -10,7 +10,7 @@ services:
     ports:
       - "8501:8501"  # Map host port 8501 to container port 8501
     volumes:
-      # Mount data directory so files persist
+      # Mount data directory so files persist (includes backups)
       - ./data:/app/data
       # Mount JSON files so they persist
       - ./users.json:/app/users.json
@@ -19,6 +19,8 @@ services:
       - ./batch_assignments.json:/app/batch_assignments.json
       - ./config.json:/app/config.json
       - ./data.jsonl:/app/data.jsonl
+      # Mount .git directory for cron job to push commits
+      - ./.git:/app/.git
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1

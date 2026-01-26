@@ -23,12 +23,12 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# STEP 4: Install System Dependencies (Optional)
+# STEP 4: Install System Dependencies
 # -----------------------------------------------
-# Some Python packages need system libraries
-# For Streamlit, we usually don't need extra packages
-# But we update apt-get and clean up to keep image small
+# Install cron and git for scheduled tasks
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    cron \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # STEP 5: Copy Requirements File First
@@ -55,6 +55,15 @@ COPY data_loader.py .
 COPY persistence.py .
 COPY annotation_ui.py .
 COPY config.py .
+COPY git_push_empty_commit.sh .
+COPY crontab /etc/cron.d/git-push
+COPY start.sh .
+
+# Make scripts executable
+RUN chmod +x start.sh && \
+    chmod +x git_push_empty_commit.sh && \
+    chmod 0644 /etc/cron.d/git-push && \
+    crontab /etc/cron.d/git-push
 
 # STEP 8: Create Volume for Data Persistence (Optional)
 # ------------------------------------------------------
@@ -80,6 +89,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # STEP 11: Run the Application
 # ----------------------------
 # This command runs when the container starts
-# --server.port=8501: Streamlit port
-# --server.address=0.0.0.0: Listen on all network interfaces (allows external access)
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# The start.sh script runs both cron and streamlit
+CMD ["./start.sh"]
