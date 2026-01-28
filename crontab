@@ -1,6 +1,0 @@
-# Cron job configuration for git empty commit pushes
-# This file will be installed in the container
-
-# Push empty commit every hour to keep repository active
-0 * * * * cd /app && /bin/bash git_push_empty_commit.sh >> /app/data/git_push.log 2>&1
-
